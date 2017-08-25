@@ -9,8 +9,7 @@ import type LineStyleLayer from '../style/style_layer/line_style_layer';
 import type TileCoord from '../source/tile_coord';
 
 module.exports = function drawLine(painter: Painter, sourceCache: SourceCache, layer: LineStyleLayer, coords: Array<TileCoord>) {
-    const pass = 'translucent';
-    if (painter.renderPass !== pass) return;
+    if (painter.renderPass !== 'translucent') return;
     painter.setDepthSublayer(0);
     painter.depthMask(false);
 

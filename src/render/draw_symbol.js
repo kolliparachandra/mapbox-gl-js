@@ -16,8 +16,7 @@ import type TileCoord from '../source/tile_coord';
 module.exports = drawSymbols;
 
 function drawSymbols(painter: Painter, sourceCache: SourceCache, layer: SymbolStyleLayer, coords: Array<TileCoord>) {
-    const pass = 'translucent';
-    if (painter.renderPass !== pass) return;
+    if (painter.renderPass !== 'translucent') return;
 
     const drawAcrossEdges =
         !layer.layout['text-allow-overlap'] &&
