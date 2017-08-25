@@ -9,6 +9,7 @@ import type Painter from './painter';
 class RenderTexture {
     gl: WebGLRenderingContext;
     texture: WebGLTexture;
+    fbo: WebGLFramebuffer;
     buffer: Buffer;
     vao: VertexArrayObject;
 
@@ -25,6 +26,10 @@ class RenderTexture {
 
         gl.bindTexture(gl.TEXTURE_2D, null);
 
+        const fbo = this.fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+
         const array = new PosArray();
         array.emplaceBack(0, 0);
         array.emplaceBack(1, 0);
@@ -34,14 +39,16 @@ class RenderTexture {
         this.vao = new VertexArrayObject();
     }
 
-    attachToFramebuffer() {
+    attachRenderbuffer(depthRbo: WebGLRenderbuffer) {
         const gl = this.gl;
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.texture, 0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthRbo);
     }
 
-    detachFromFramebuffer() {
+    detachRenderbuffer() {
         const gl = this.gl;
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
 }
 

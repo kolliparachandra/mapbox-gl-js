@@ -64,9 +64,8 @@ class Painter {
     emptyProgramConfiguration: ProgramConfiguration;
     width: number;
     height: number;
-    viewportTextures: Array<RenderTexture>;
-    _prerenderedTextures: { [string]: ?RenderTexture };
-    viewportFbo: WebGLFramebuffer;
+    viewportFbos: Array<RenderTexture>;
+    _prerenderedFrames: { [string]: ?RenderTexture };
     depthRbo: WebGLRenderbuffer;
     _depthMask: boolean;
     tileExtentBuffer: Buffer;
@@ -96,8 +95,8 @@ class Painter {
         this.gl = gl;
         this.transform = transform;
         this._tileTextures = {};
-        this._prerenderedTextures = {};
-        this.viewportTextures = [];
+        this._prerenderedFrames = {};
+        this.viewportFbos = [];
 
         this.frameHistory = new FrameHistory();
 
@@ -125,15 +124,13 @@ class Painter {
         this.height = height * browser.devicePixelRatio;
         gl.viewport(0, 0, this.width, this.height);
 
-        for (const texture of this.viewportTextures) {
-            this.gl.deleteTexture(texture.texture);
+        for (const frame of this.viewportFbos) {
+            this.gl.deleteTexture(frame.texture);
+            // TODO instead of deleting FBO on resize/destroying whole object,
+            // should we keep it around and only create a new texture next time?
+            this.gl.deleteFramebuffer(frame.fbo);
         }
-        this.viewportTextures = [];
-
-        if (this.viewportFbo) {
-            this.gl.deleteFramebuffer(this.viewportFbo);
-            this.viewportFbo = null;
-        }
+        this.viewportFbos = [];
 
         if (this.depthRbo) {
             this.gl.deleteRenderbuffer(this.depthRbo);
@@ -277,9 +274,10 @@ class Painter {
         const layerIds = this.style._order;
 
         // 3D pass
-        // We first bind an offscreen framebuffer and render each 3D layer to
-        // its own texture, which we'll use later in the translucent pass to
-        // render to the main framebuffer. By doing this before we render to
+        // We first create a renderbuffer that we'll use to preserve depth
+        // results across 3D layers, then render each 3D layer to its own
+        // framebuffer/texture, which we'll use later in the translucent pass
+        // to render to the main framebuffer. By doing this before we render to
         // the main framebuffer we won't have to do an expensive framebuffer
         // restore mid-render pass.
         // The most important distinction of the 3D pass is that we use the
@@ -288,9 +286,9 @@ class Painter {
         this.renderPass = '3d';
         {
             const gl = this.gl;
-            // We'll wait and only attach the framebuffer if we think we're
+            // We'll wait and only attach the depth renderbuffer if we think we're
             // rendering something.
-            let fboAttached = false;
+            let rboAttached = false;
 
             let sourceCache;
             let coords = [];
@@ -304,7 +302,7 @@ class Painter {
                     // Don't bother creating a texture if we're not going
                     // to render anything: emplace a null value as a marker
                     // for the regular translucent render pass.
-                    this._prerenderedTextures[layer.id] = null;
+                    this._prerenderedFrames[layer.id] = null;
                 } else {
                     if (layer.source !== (sourceCache && sourceCache.id)) {
                         sourceCache = this.style.sourceCaches[layer.source];
@@ -320,38 +318,38 @@ class Painter {
                     }
 
                     if (!coords.length) {
-                        this._prerenderedTextures[layer.id] = null;
+                        this._prerenderedFrames[layer.id] = null;
                         continue;
                     }
 
-                    if (!fboAttached) {
-                        // This is the first 3D layer we're rendering: attach
-                        // the framebuffer now.
-                        this._setup3DFramebuffer();
+                    if (!rboAttached) {
+                        // This is the first 3D layer we're rendering: setup the
+                        // depth renderbuffer now.
+                        this._setup3DRenderbuffer();
                         // Wait to flip the boolean until after we attach the first
-                        // texture and clear the depth buffer a few lines down.
+                        // frame and clear the depth buffer a few lines down.
                     }
 
-                    let renderTarget = this.viewportTextures.pop();
+                    let renderTarget = this.viewportFbos.pop();
                     if (!renderTarget) {
                         renderTarget = new RenderTexture(this);
                     }
-                    renderTarget.attachToFramebuffer();
+                    renderTarget.attachRenderbuffer(this.depthRbo);
 
-                    if (!fboAttached) {
+                    if (!rboAttached) {
                         this.clearDepth();
-                        fboAttached = true;
+                        rboAttached = true;
                     }
 
                     this.renderLayer(this, (sourceCache: any), layer, coords);
 
-                    renderTarget.detachFromFramebuffer();
+                    renderTarget.detachRenderbuffer();
 
-                    this._prerenderedTextures[layer.id] = renderTarget;
+                    this._prerenderedFrames[layer.id] = renderTarget;
                 }
             }
 
-            if (fboAttached) gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            if (rboAttached) gl.bindRenderbuffer(gl.RENDERBUFFER, null);
         }
 
         // Clear buffers in preparation for drawing to the main framebuffer
@@ -439,21 +437,14 @@ class Painter {
         }
     }
 
-    _setup3DFramebuffer() {
-        const gl = this.gl;
-        // All of the 3D textures will use the same framebuffer and depth renderbuffer.
-        let fbo = this.viewportFbo;
-        if (!fbo) {
-            fbo = gl.createFramebuffer();
-            gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    _setup3DRenderbuffer() {
+        // All of the 3D textures will use the same depth renderbuffer.
+        if (!this.depthRbo) {
+            const gl = this.gl;
             this.depthRbo = gl.createRenderbuffer();
             gl.bindRenderbuffer(gl.RENDERBUFFER, this.depthRbo);
             gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, this.width, this.height);
             gl.bindRenderbuffer(gl.RENDERBUFFER, null);
-            gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.depthRbo);
-            this.viewportFbo = fbo;
-        } else {
-            gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
         }
     }
 
