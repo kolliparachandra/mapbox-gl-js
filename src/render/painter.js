@@ -127,8 +127,6 @@ class Painter {
 
         for (const frame of this.viewportFrames) {
             this.gl.deleteTexture(frame.texture);
-            // TODO instead of deleting FBO on resize/destroying whole object,
-            // should we keep it around and only create a new texture next time?
             this.gl.deleteFramebuffer(frame.fbo);
         }
         this.viewportFrames = [];
@@ -316,7 +314,7 @@ class Painter {
 
                 this._setup3DRenderbuffer();
 
-                let renderTarget = this.viewportFrames.pop() || new RenderTexture(this);
+                const renderTarget = this.viewportFrames.pop() || new RenderTexture(this);
                 renderTarget.attachRenderbuffer(this.depthRbo);
 
                 if (first) {
