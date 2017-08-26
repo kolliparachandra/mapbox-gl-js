@@ -64,9 +64,10 @@ class Painter {
     emptyProgramConfiguration: ProgramConfiguration;
     width: number;
     height: number;
-    viewportFbos: Array<RenderTexture>;
-    _prerenderedFrames: { [string]: ?RenderTexture };
+    viewportFrames: Array<RenderTexture>;
+    prerenderedFrames: { [string]: ?RenderTexture };
     depthRbo: WebGLRenderbuffer;
+    depthRboAttached: boolean;
     _depthMask: boolean;
     tileExtentBuffer: Buffer;
     tileExtentVAO: VertexArrayObject;
@@ -95,8 +96,8 @@ class Painter {
         this.gl = gl;
         this.transform = transform;
         this._tileTextures = {};
-        this._prerenderedFrames = {};
-        this.viewportFbos = [];
+        this.prerenderedFrames = {};
+        this.viewportFrames = [];
 
         this.frameHistory = new FrameHistory();
 
@@ -124,13 +125,13 @@ class Painter {
         this.height = height * browser.devicePixelRatio;
         gl.viewport(0, 0, this.width, this.height);
 
-        for (const frame of this.viewportFbos) {
+        for (const frame of this.viewportFrames) {
             this.gl.deleteTexture(frame.texture);
             // TODO instead of deleting FBO on resize/destroying whole object,
             // should we keep it around and only create a new texture next time?
             this.gl.deleteFramebuffer(frame.fbo);
         }
-        this.viewportFbos = [];
+        this.viewportFrames = [];
 
         if (this.depthRbo) {
             this.gl.deleteRenderbuffer(this.depthRbo);
@@ -288,7 +289,7 @@ class Painter {
             const gl = this.gl;
             // We'll wait and only attach the depth renderbuffer if we think we're
             // rendering something.
-            let rboAttached = false;
+            let first = true;
 
             let sourceCache;
             let coords = [];
@@ -296,60 +297,40 @@ class Painter {
             for (let i = 0; i < layerIds.length; i++) {
                 const layer = this.style._layers[layerIds[i]];
 
-                if (!layer.has3DPass()) continue;
+                if (!layer.has3DPass() || layer.isHidden(this.transform.zoom)) continue;
 
-                if (layer.paint['fill-extrusion-opacity'] === 0 || layer.isHidden(this.transform.zoom)) {
-                    // Don't bother creating a texture if we're not going
-                    // to render anything: emplace a null value as a marker
-                    // for the regular translucent render pass.
-                    this._prerenderedFrames[layer.id] = null;
-                } else {
-                    if (layer.source !== (sourceCache && sourceCache.id)) {
-                        sourceCache = this.style.sourceCaches[layer.source];
-                        coords = [];
+                if (layer.source !== (sourceCache && sourceCache.id)) {
+                    sourceCache = this.style.sourceCaches[layer.source];
+                    coords = [];
 
-                        if (sourceCache) {
-                            if (sourceCache.prepare) sourceCache.prepare();
-                            this.clearStencil();
-                            coords = sourceCache.getVisibleCoordinates();
-                        }
-
-                        coords.reverse();
+                    if (sourceCache) {
+                        if (sourceCache.prepare) sourceCache.prepare();
+                        this.clearStencil();
+                        coords = sourceCache.getVisibleCoordinates();
                     }
 
-                    if (!coords.length) {
-                        this._prerenderedFrames[layer.id] = null;
-                        continue;
-                    }
-
-                    if (!rboAttached) {
-                        // This is the first 3D layer we're rendering: setup the
-                        // depth renderbuffer now.
-                        this._setup3DRenderbuffer();
-                        // Wait to flip the boolean until after we attach the first
-                        // frame and clear the depth buffer a few lines down.
-                    }
-
-                    let renderTarget = this.viewportFbos.pop();
-                    if (!renderTarget) {
-                        renderTarget = new RenderTexture(this);
-                    }
-                    renderTarget.attachRenderbuffer(this.depthRbo);
-
-                    if (!rboAttached) {
-                        this.clearDepth();
-                        rboAttached = true;
-                    }
-
-                    this.renderLayer(this, (sourceCache: any), layer, coords);
-
-                    renderTarget.detachRenderbuffer();
-
-                    this._prerenderedFrames[layer.id] = renderTarget;
+                    coords.reverse();
                 }
+
+                if (!coords.length) continue;
+
+                this._setup3DRenderbuffer();
+
+                let renderTarget = this.viewportFrames.pop() || new RenderTexture(this);
+                renderTarget.attachRenderbuffer(this.depthRbo);
+
+                if (first) {
+                    this.clearDepth();
+                    first = false;
+                }
+
+                this.renderLayer(this, (sourceCache: any), layer, coords);
+
+                renderTarget.detachRenderbuffer();
+                this.prerenderedFrames[layer.id] = renderTarget;
             }
 
-            if (rboAttached) gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+            if (this.depthRboAttached) gl.bindRenderbuffer(gl.RENDERBUFFER, null);
         }
 
         // Clear buffers in preparation for drawing to the main framebuffer
@@ -446,6 +427,8 @@ class Painter {
             gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, this.width, this.height);
             gl.bindRenderbuffer(gl.RENDERBUFFER, null);
         }
+
+        this.depthRboAttached = true;
     }
 
     depthMask(mask: boolean) {

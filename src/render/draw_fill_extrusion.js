@@ -32,7 +32,7 @@ function draw(painter: Painter, source: SourceCache, layer: FillExtrusionStyleLa
 }
 
 function drawExtrusionTexture(painter, layer) {
-    const renderedTexture = painter._prerenderedFrames[layer.id];
+    const renderedTexture = painter.prerenderedFrames[layer.id];
     if (!renderedTexture) return;
 
     const gl = painter.gl;
@@ -57,8 +57,8 @@ function drawExtrusionTexture(painter, layer) {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     // Since this texture has been rendered, make it available for reuse in the next frame.
-    painter.viewportFbos.push(renderedTexture);
-    delete painter._prerenderedFrames[layer.id];
+    painter.viewportFrames.push(renderedTexture);
+    delete painter.prerenderedFrames[layer.id];
 }
 
 function drawExtrusion(painter, source, layer, coord) {
