@@ -51,7 +51,8 @@ module.exports = () => ({
 
     has: function (obj: {[string]: Value}, key: string, name?: string) {
         ensure(obj, `Cannot get property ${key} from null object${name ? ` ${name}` : ''}.`);
-        return this.as(obj, ObjectType, name).hasOwnProperty(key);
+        ensure(typeof obj === 'object', `Expected ${name || 'value'} to be of type Object, but found ${toString(typeOf(obj))} instead.`);
+        return obj.hasOwnProperty(key);
     },
 
     typeOf: function (x: Value): string {
